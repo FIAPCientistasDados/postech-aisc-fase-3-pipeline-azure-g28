@@ -1,331 +1,307 @@
-# ==========================================
-# 01_bronze_to_silver_raw
-# ==========================================
+# %python
 
-from pathlib import Path
 import pandas as pd
-import json
-import zipfile
-import re
+from pathlib import Path
+from pyspark.sql import functions as F
 
-# ------------------------------------------
-# Diretórios
-# ------------------------------------------
+# ====================================================
+# BRONZE
+# ====================================================
 
-BASE_DIR = Path(
-    "/Workspace/Users/alura.conta@gmail.com"
+BRONZE = Path(
+    "/Workspace/Users/alura.conta@gmail.com/bronze"
 )
 
-BRONZE = BASE_DIR / "bronze"
-SILVER = BASE_DIR / "silver"
+arquivos = [
+    BRONZE / "resultados_municipios_2023.xlsx",
+    BRONZE / "resultados_municipios_2024.xlsx",
+    BRONZE / "resultados_municipios_2025.xlsx"
+]
 
-SILVER.mkdir(
-    parents=True,
-    exist_ok=True
-)
+# ====================================================
+# LEITURA E CONSOLIDAÇÃO
+# ====================================================
 
-# ------------------------------------------
-# Funções auxiliares
-# ------------------------------------------
+dados = []
 
-def normalize_columns(df):
+for arquivo in arquivos:
 
-    new_cols = []
-
-    for col in df.columns:
-
-        col = str(col).strip().lower()
-
-        col = (
-            col.replace("ã", "a")
-               .replace("á", "a")
-               .replace("à", "a")
-               .replace("â", "a")
-               .replace("é", "e")
-               .replace("ê", "e")
-               .replace("í", "i")
-               .replace("ó", "o")
-               .replace("ô", "o")
-               .replace("õ", "o")
-               .replace("ú", "u")
-               .replace("ç", "c")
-        )
-
-        col = re.sub(
-            r"[^\w]+",
-            "_",
-            col
-        )
-
-        col = re.sub(
-            r"_+",
-            "_",
-            col
-        )
-
-        col = col.strip("_")
-
-        new_cols.append(col)
-
-    df.columns = new_cols
-
-    return df
-
-
-def save_parquet(df, name):
-
-    path = SILVER / name
-
-    df.to_parquet(
-        path,
-        index=False
-    )
-
-    print(
-        f"✅ {name} "
-        f"{df.shape}"
-    )
-
-
-# ------------------------------------------
-# Municípios
-# ------------------------------------------
-
-df = pd.read_csv(
-    BRONZE / "ibge_municipios.json"
-)
-
-df = normalize_columns(df)
-
-save_parquet(
-    df,
-    "municipios.parquet"
-)
-
-# ------------------------------------------
-# Estados
-# ------------------------------------------
-
-df = pd.read_csv(
-    BRONZE / "ibge_estados.json"
-)
-
-df = normalize_columns(df)
-
-save_parquet(
-    df,
-    "estados.parquet"
-)
-
-# ------------------------------------------
-# Resultados Municípios
-# ------------------------------------------
-
-municipios = []
-
-for arquivo, ano in [
-
-    (
-        "resultados_municipios_2023.xlsx",
-        2023
-    ),
-
-    (
-        "resultados_municipios_2024.xlsx",
-        2024
-    ),
-
-    (
-        "resultados_municipios_2025.xlsx",
-        2025
-    ),
-]:
+    print(f"Lendo {arquivo.name}")
 
     df = pd.read_excel(
-        BRONZE / arquivo
+        arquivo,
+        engine="openpyxl",
+        header=1
     )
 
-    df = normalize_columns(df)
+    df["_source_file"] = arquivo.name
 
-    df["ano_referencia"] = ano
+    dados.append(df)
 
-    municipios.append(df)
-
-df = pd.concat(
-    municipios,
+pdf = pd.concat(
+    dados,
     ignore_index=True
 )
 
-save_parquet(
-    df,
-    "resultados_municipios.parquet"
+print(
+    f"Registros consolidados: {len(pdf):,}"
 )
 
-# ------------------------------------------
-# Resultados UFs
-# ------------------------------------------
+# ====================================================
+# LIMPEZA DOS NOMES DAS COLUNAS
+# ====================================================
 
-ufs = []
-
-for arquivo, ano in [
-
-    (
-        "resultados_ufs_2023.xlsx",
-        2023
-    ),
-
-    (
-        "resultados_ufs_2024.xlsx",
-        2024
-    ),
-
-    (
-        "resultados_ufs_2025.xlsx",
-        2025
-    ),
-]:
-
-    df = pd.read_excel(
-        BRONZE / arquivo
-    )
-
-    df = normalize_columns(df)
-
-    df["ano_referencia"] = ano
-
-    ufs.append(df)
-
-df = pd.concat(
-    ufs,
-    ignore_index=True
+pdf.columns = (
+    pdf.columns
+       .str.strip()
 )
 
-save_parquet(
-    df,
-    "resultados_ufs.parquet"
+# ====================================================
+# PADRONIZAÇÃO DOS TIPOS
+# ====================================================
+
+pdf["ANO"] = pd.to_numeric(
+    pdf["ANO"],
+    errors="coerce"
+).astype("Int64")
+
+pdf["CO_UF"] = pd.to_numeric(
+    pdf["CO_UF"],
+    errors="coerce"
+).astype("Int64")
+
+pdf["CO_MUNICIPIO"] = (
+    pdf["CO_MUNICIPIO"]
+      .astype(str)
+      .str.strip()
 )
 
-# ------------------------------------------
-# INSE
-# ------------------------------------------
-
-df = pd.read_excel(
-    BRONZE / "inse_2023_municipios.xlsx"
+pdf["NO_TP_REDE"] = (
+    pdf["NO_TP_REDE"]
+      .astype(str)
+      .str.strip()
 )
 
-df = normalize_columns(df)
+# ====================================================
+# COLUNAS NUMÉRICAS
+# ====================================================
 
-save_parquet(
-    df,
-    "inse.parquet"
-)
+colunas_numericas = [
 
-# ------------------------------------------
-# Censo 2022
-# ------------------------------------------
+    "PC_ALUNO_ALFABETIZADO",
 
-with open(
-    BRONZE / "censo_2022.json",
-    "r",
-    encoding="utf-8"
-) as f:
+    "META_FINAL_2024",
+    "META_FINAL_2025",
+    "META_FINAL_2026",
+    "META_FINAL_2027",
+    "META_FINAL_2028",
+    "META_FINAL_2029",
+    "META_FINAL_2030",
 
-    data = json.load(f)
+    "PC_AVALIADOS_LP"
+]
 
-df = pd.DataFrame(
-    data
-)
+for c in colunas_numericas:
 
-df = normalize_columns(df)
+    if c in pdf.columns:
 
-save_parquet(
-    df,
-    "censo_2022.parquet"
-)
-
-# ------------------------------------------
-# PIB
-# ------------------------------------------
-
-with open(
-    BRONZE / "pib_municipal.json",
-    "r",
-    encoding="utf-8"
-) as f:
-
-    data = json.load(f)
-
-df = pd.DataFrame(
-    data
-)
-
-df = normalize_columns(df)
-
-save_parquet(
-    df,
-    "pib.parquet"
-)
-
-# ------------------------------------------
-# IDEB
-# ------------------------------------------
-
-ideb_extract_dir = (
-    BRONZE / "ideb_extraido"
-)
-
-if not ideb_extract_dir.exists():
-
-    with zipfile.ZipFile(
-        BRONZE /
-        "ideb_anos_iniciais.zip"
-    ) as z:
-
-        z.extractall(
-            ideb_extract_dir
+        pdf[c] = pd.to_numeric(
+            pdf[c],
+            errors="coerce"
         )
 
-arquivos_excel = list(
-    ideb_extract_dir.rglob("*.xls*")
+# ====================================================
+# EVITAR ERROS PYARROW
+# ====================================================
+
+for col in pdf.columns:
+
+    if pdf[col].dtype == "object":
+
+        tipos = (
+            pdf[col]
+                .dropna()
+                .map(type)
+                .nunique()
+        )
+
+        if tipos > 1:
+
+            print(
+                f"Padronizando coluna {col}"
+            )
+
+            pdf[col] = pdf[col].astype(str)
+
+# ====================================================
+# METADADOS
+# ====================================================
+
+pdf["ingested_at"] = pd.Timestamp.utcnow()
+
+pdf["source"] = (
+    "bronze/resultados_municipios"
 )
 
-if arquivos_excel:
+pdf["version"] = "1.0"
 
-    ideb = pd.read_excel(
-        arquivos_excel[0]
-    )
+# ====================================================
+# DATA QUALITY
+# ====================================================
 
-    ideb = normalize_columns(
-        ideb
-    )
+chaves = [
+    "ANO",
+    "CO_MUNICIPIO",
+    "NO_TP_REDE"
+]
 
-    save_parquet(
-        ideb,
-        "ideb.parquet"
-    )
+nulos_chave = (
+    pdf[chaves]
+      .isna()
+      .sum()
+      .sum()
+)
 
-else:
+duplicados = (
+    pdf
+      .duplicated(
+          subset=chaves
+      )
+      .sum()
+)
 
-    print(
-        "⚠️ IDEB sem planilha encontrada."
-    )
-
-# ------------------------------------------
-# Microdados
-# ------------------------------------------
+print("\n===== DATA QUALITY =====")
 
 print(
-    "\n✅ Bronze → Silver concluído."
+    f"Nulos na chave: {nulos_chave}"
 )
 
 print(
-    "\nPróxima etapa:"
+    f"Duplicados: {duplicados}"
+)
+
+# ====================================================
+# REMOVER DUPLICADOS
+# ====================================================
+
+pdf = pdf.drop_duplicates(
+    subset=chaves
+)
+
+# ====================================================
+# MONITORAMENTO
+# ====================================================
+
+spark.sql(
+"""
+CREATE DATABASE IF NOT EXISTS monitoring
+"""
+)
+
+spark.sql("""
+CREATE TABLE IF NOT EXISTS monitoring.dq_results
+(
+    table_name STRING,
+    rule STRING,
+    status STRING,
+    records_checked BIGINT,
+    failures BIGINT,
+    run_at TIMESTAMP
+)
+USING DELTA
+""")
+
+registros = [
+
+    (
+        "silver.indicador_municipio",
+        "completude_chaves",
+        "PASS" if nulos_chave == 0 else "FAIL",
+        int(len(pdf)),
+        int(nulos_chave)
+    ),
+
+    (
+        "silver.indicador_municipio",
+        "unicidade_chave",
+        "PASS" if duplicados == 0 else "FAIL",
+        int(len(pdf)),
+        int(duplicados)
+    )
+]
+
+df_dq = (
+    spark.createDataFrame(
+        registros,
+        [
+            "table_name",
+            "rule",
+            "status",
+            "records_checked",
+            "failures"
+        ]
+    )
+    .withColumn(
+        "run_at",
+        F.current_timestamp()
+    )
+)
+
+df_dq.write \
+    .mode("append") \
+    .saveAsTable(
+        "monitoring.dq_results"
+    )
+
+# ====================================================
+# PANDAS -> SPARK
+# ====================================================
+
+df = spark.createDataFrame(pdf)
+
+# ====================================================
+# SILVER
+# ====================================================
+
+spark.sql(
+"""
+CREATE DATABASE IF NOT EXISTS silver
+"""
+)
+
+df.write \
+    .mode("overwrite") \
+    .option(
+        "overwriteSchema",
+        "true"
+    ) \
+    .format("delta") \
+    .partitionBy("ANO") \
+    .saveAsTable(
+        "silver.indicador_municipio"
+    )
+
+# ====================================================
+# RESULTADOS
+# ====================================================
+
+print("\n✅ SILVER CRIADA COM SUCESSO")
+
+print(
+    f"Registros: {df.count():,}"
 )
 
 print(
-    "02_silver_quality"
+    f"Anos carregados: "
+    f"{df.select('ANO').distinct().count()}"
 )
 
-print(
-    "03_microdados_to_silver"
+display(
+    df.groupBy("ANO")
+      .count()
+      .orderBy("ANO")
+)
+
+display(
+    df.limit(20)
 )
