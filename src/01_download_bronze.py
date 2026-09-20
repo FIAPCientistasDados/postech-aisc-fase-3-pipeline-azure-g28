@@ -1,8 +1,17 @@
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parent.parent
+
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 import requests
 import urllib3
 from pathlib import Path
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from src.config.settings import BRONZE_PATH
 
 urllib3.disable_warnings()
 
@@ -122,9 +131,7 @@ ARQUIVOS = [
 
 from pathlib import Path
 
-BASE_DIR = Path(
-    "/Workspace/Users/alura.conta@gmail.com/bronze"
-)
+BASE_DIR = BRONZE_PATH
 
 for arquivo in ARQUIVOS:
 
