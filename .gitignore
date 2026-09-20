@@ -23,4 +23,7 @@ logs/
 # =========================
 .env
 
-dados/bronze/
+dados/bronze/microdados_2023
+dados/bronze/microdados_2024
+dados/bronze/microdados_2025
+dados/bronze/ideb_anos_iniciais
