@@ -8,12 +8,28 @@ if str(ROOT) not in sys.path:
 
 import requests
 import urllib3
+import zipfile
 from pathlib import Path
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from src.config.settings import BRONZE_PATH
 
 urllib3.disable_warnings()
+
+def extrair_zip(arquivo_zip: Path):
+
+    pasta_destino = arquivo_zip.with_suffix("")
+
+    if pasta_destino.exists():
+        print(f"✅ ZIP já extraído: {pasta_destino.name}")
+        return
+
+    print(f"📦 Extraindo: {arquivo_zip.name}")
+
+    with zipfile.ZipFile(arquivo_zip, "r") as zip_ref:
+        zip_ref.extractall(pasta_destino)
+
+    print(f"✅ Extraído para: {pasta_destino}")
 
 
 def download(url: str, destino: str):
@@ -138,8 +154,13 @@ for arquivo in ARQUIVOS:
     destino = BASE_DIR / arquivo["nome"]
 
     if destino.exists():
+
         print(f"✅ Já existe: {arquivo['nome']}")
-        continue
+
+    if destino.suffix.lower() == ".zip":
+        extrair_zip(destino)
+
+    continue
 
     print(f"⬇️ Baixando {arquivo['nome']}")
 
@@ -149,3 +170,6 @@ for arquivo in ARQUIVOS:
     )
 
     print(f"✅ Concluído: {arquivo['nome']}")
+
+    if destino.suffix.lower() == ".zip":
+        extrair_zip(destino)
