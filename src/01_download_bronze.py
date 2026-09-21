@@ -173,3 +173,6 @@ for arquivo in ARQUIVOS:
 
     if destino.suffix.lower() == ".zip":
         extrair_zip(destino)
+
+if __name__ == "__main__":
+    main()
